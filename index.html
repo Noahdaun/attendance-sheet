@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>공부시간 비교 보드 + 출석부 (다중 반 관리)</title>
+  <style>
+    :root {
+      --bg: #0f172a;          /* slate-900 */
+      --panel: #111827;       /* gray-900 */
+      --muted: #94a3b8;       /* slate-400 */
+      --text: #e5e7eb;        /* gray-200 */
+      --accent: #22d3ee;      /* cyan-400 */
+      --accent-2: #a78bfa;    /* violet-400 */
+      --bar: #38bdf8;         /* sky-400 */
+      --bar-2: #34d399;       /* emerald-400 */
+      --grid: #1f2937;        /* gray-800 */
+      --ring: #334155;        /* slate-700 */
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background: linear-gradient(180deg, #0b1220, var(--bg)); color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, "Apple SD Gothic Neo", Arial, "Segoe UI Emoji"; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 16px; display: grid; gap: 16px; }
+    .title { display:flex; align-items:baseline; gap:12px; padding: 8px 2px 0; }
+    h1 { font-size: clamp(20px, 2.6vw, 30px); margin:0; font-weight:700; }
+    .note { color: var(--muted); font-size: 12px; }
+
+    /* class tabs */
+    .classes { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; }
+    .tab { padding:8px 12px; border:1px solid var(--ring); border-radius:999px; cursor:pointer; background:#0b1220; color:#cbd5e1; }
+    .tab.active { background: linear-gradient(180deg, #1f2937, #0f172a); color:#fff; box-shadow: 0 6px 14px rgba(0,0,0,.35); }
+    .classControls { display:flex; gap:8px; flex-wrap:wrap; }
+    button, input[type="text"], input[type="number"] { background:#0b1220; color:var(--text); border:1px solid var(--ring); border-radius:10px; padding: 10px 12px; font-size:14px; outline:none; }
+    button { background: linear-gradient(180deg, #1f2937, #0f172a); cursor:pointer; transition: transform .06s ease, box-shadow .2s ease; }
+    button:hover { box-shadow: 0 8px 16px rgba(0,0,0,.35); }
+    button:active { transform: translateY(1px); }
+
+    .board { display:grid; grid-template-columns: 360px 1fr; gap: 16px; }
+    @media (max-width: 920px) { .board { grid-template-columns: 1fr; } }
+
+    .panel { background: rgba(17,24,39,.72); border:1px solid var(--ring); border-radius: 14px; box-shadow: 0 10px 20px rgba(0,0,0,.25); }
+    .panel h2 { font-size: 16px; margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--ring); color:#dbeafe; display:flex; align-items:center; gap:8px; }
+    .panel .inner { padding: 12px 12px 16px; }
+
+    .controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 10px; }
+
+    .table { width:100%; border-collapse:separate; border-spacing:0 8px; }
+    .th, .tr { display:grid; grid-template-columns: 1fr 100px 44px; align-items:center; gap:8px; }
+    .th { color: var(--muted); font-size:12px; padding: 0 6px 4px; }
+    .row { background: #0b1220; border:1px solid var(--ring); border-radius: 10px; padding: 8px; }
+
+    .nameInput { width:100%; }
+    .hourInput { width:100%; text-align:right; }
+
+    .del { width:44px; height:38px; border-radius:10px; display:grid; place-items:center; color:#fda4af; border:1px solid #78303a; background: #2a0d13; cursor:pointer; }
+
+    /* Graph panel */
+    .graphWrap { padding: 8px 14px 18px; }
+    .graphHead { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding: 8px 0 12px; border-bottom:1px dashed var(--ring); }
+    .scale { color: var(--muted); font-size:12px; }
+
+    .bars { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+    .barRow { display:grid; grid-template-columns: 140px 1fr; gap:10px; align-items:center; }
+    .label { color:#bfdbfe; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+    .barTrack { height: 28px; background: #0b1220; border:1px solid var(--ring); border-radius: 999px; overflow:hidden; position:relative; }
+    .barFill { height:100%; width:0%; background: linear-gradient(90deg, var(--bar), var(--bar-2)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); transition: width .25s ease; }
+    .barTag { position:absolute; right:8px; top:50%; transform:translateY(-50%); font-size:12px; color:#e2e8f0; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+
+    .axis { display:grid; grid-template-columns: 140px 1fr; gap:10px; align-items:center; margin-top:8px; }
+    .ticks { position:relative; height: 20px; }
+    .ticks::before { content:""; position:absolute; inset: 9px 0 9px 0; background: repeating-linear-gradient(90deg, transparent 0 49px, var(--grid) 49px 50px); opacity:.7; }
+    .tickLabels { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; font-size:10px; color:var(--muted); padding: 0 2px; }
+
+    .footer { color:var(--muted); font-size:12px; text-align:center; padding: 8px 0 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">
+      <h1>공부시간 비교 보드</h1>
+      <div class="note">반(클래스) 탭을 만들어 여러 반을 따로 관리할 수 있습니다.</div>
+    </div>
+
+    <!-- 반 탭/관리 -->
+    <section class="panel">
+      <h2>반 관리</h2>
+      <div class="inner classes">
+        <div id="classTabs" class="tabs" aria-label="반 목록"></div>
+        <div class="classControls">
+          <input id="newClassName" type="text" placeholder="새 반 이름 (예: A반)" />
+          <button id="addClassBtn">+ 반 추가</button>
+          <input id="renameInput" type="text" placeholder="현재 반 새 이름" />
+          <button id="renameClassBtn">이름 바꾸기</button>
+          <button id="deleteClassBtn">반 삭제</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="board">
+      <!-- Left: editable list -->
+      <section class="panel">
+        <h2>입력 (이름 + 시간)</h2>
+        <div class="inner">
+          <div class="controls">
+            <button id="addBtn">+ 학생 추가</button>
+            <button id="clearBtn">전체 지우기</button>
+          </div>
+
+          <div class="th">
+            <div>이름</div>
+            <div style="text-align:right">시간(h)</div>
+            <div></div>
+          </div>
+          <div id="rows" class="table" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <!-- Right: live graph -->
+      <section class="panel">
+        <h2>그래프</h2>
+        <div class="graphWrap">
+          <div class="graphHead">
+            <div class="scale">스케일: 최대값 기준 100%</div>
+            <div class="scale" id="summary">총 0명 · 합계 0h · 최대 0h</div>
+          </div>
+
+          <div class="axis">
+            <div></div>
+            <div class="ticks">
+              <div class="tickLabels" id="tickLabels"></div>
+            </div>
+          </div>
+
+          <div id="bars" class="bars"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 출석부 패널 -->
+    <section class="panel" style="margin-top:12px;">
+      <h2>출석부</h2>
+      <div class="inner">
+        <div class="controls" style="margin-bottom:12px;">
+          <input id="colName" type="text" placeholder="열 제목 (예: 10/23 또는 Week1)" />
+          <button id="addColBtn">+ 열 추가</button>
+          <button id="addTodayBtn">오늘 날짜 열 추가</button>
+          <button id="clearAttBtn">출석표 초기화</button>
+        </div>
+        <div class="th" style="grid-template-columns: 1fr; padding-bottom:8px;">이름 / 열을 클릭하면 '출석' 표기</div>
+        <div id="attWrap" style="overflow:auto; border:1px solid var(--ring); border-radius:12px;">
+          <table id="attTable" style="width:100%; border-collapse:separate; border-spacing:0; min-width: 520px;"></table>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">Tip: 각 반은 학생 목록·공부시간·출석표가 서로 독립적으로 관리됩니다.</div>
+  </div>
+
+  <script>
+    // -------------------- 다중 반 상태 --------------------
+    function cid() { return Math.random().toString(36).slice(2, 9); }
+
+    const state = {
+      classes: [
+        {
+          id: cid(), name: 'A반',
+          data: [ { id: cid(), name: 'Alice', hours: 3 }, { id: cid(), name: 'Brian', hours: 2.5 }, { id: cid(), name: 'Chris', hours: 1 } ],
+          attColumns: [],
+          attCells: {}, // { [rowId]: { [colId]: true } }
+        }
+      ],
+      activeId: null,
+    };
+    state.activeId = state.classes[0].id;
+
+    // helpers
+    const $rows = () => document.getElementById('rows');
+    const $bars = () => document.getElementById('bars');
+    const $summary = () => document.getElementById('summary');
+    const $tickLabels = () => document.getElementById('tickLabels');
+    const $attTable = () => document.getElementById('attTable');
+
+    function active() { return state.classes.find(c => c.id === state.activeId); }
+
+    // -------------------- 반 탭 렌더링 --------------------
+    function renderClassTabs() {
+      const host = document.getElementById('classTabs');
+      host.innerHTML = '';
+      state.classes.forEach(cls => {
+        const b = document.createElement('button');
+        b.className = 'tab' + (cls.id === state.activeId ? ' active' : '');
+        b.textContent = cls.name;
+        b.addEventListener('click', () => { state.activeId = cls.id; renderAll(); });
+        host.appendChild(b);
+      });
+    }
+
+    // -------------------- 좌측 입력 리스트 --------------------
+    function renderRows() {
+      const a = active();
+      const host = $rows();
+      host.innerHTML = '';
+      a.data.forEach((row) => {
+        const tr = document.createElement('div');
+        tr.className = 'tr row';
+        tr.dataset.id = row.id;
+
+        const nameInput = document.createElement('input');
+        nameInput.className = 'nameInput';
+        nameInput.type = 'text';
+        nameInput.placeholder = '학생 이름';
+        nameInput.value = row.name;
+        nameInput.addEventListener('input', (e) => {
+          row.name = e.target.value; renderGraph(); renderAttendance();
+        });
+
+        const hourInput = document.createElement('input');
+        hourInput.className = 'hourInput';
+        hourInput.type = 'number';
+        hourInput.step = '0.1';
+        hourInput.min = '0';
+        hourInput.placeholder = '0';
+        hourInput.value = row.hours ?? 0;
+        hourInput.addEventListener('input', (e) => {
+          const v = parseFloat(e.target.value);
+          row.hours = Number.isFinite(v) ? Math.max(0, v) : 0; renderGraph();
+        });
+
+        const del = document.createElement('button');
+        del.className = 'del';
+        del.title = '삭제';
+        del.innerHTML = '✕';
+        del.addEventListener('click', () => {
+          a.data = a.data.filter((x) => x.id !== row.id);
+          // 출석 셀도 같이 정리
+          delete a.attCells[row.id];
+          renderAll();
+        });
+
+        tr.append(nameInput, hourInput, del);
+        host.appendChild(tr);
+      });
+    }
+
+    // -------------------- 그래프 --------------------
+    function renderGraph() {
+      const a = active();
+      const bars = $bars();
+      bars.innerHTML = '';
+      const max = Math.max(0, ...a.data.map(d => d.hours || 0));
+      const sum = a.data.reduce((acc, cur) => acc + (cur.hours || 0), 0);
+
+      const tl = $tickLabels();
+      tl.innerHTML = '';
+      const tickCount = 4;
+      for (let i = 0; i <= tickCount; i++) {
+        const v = max * (i / tickCount);
+        const s = document.createElement('div');
+        s.textContent = (max === 0) ? (i === 0 ? '0' : '') : `${v.toFixed(1)}h`;
+        tl.appendChild(s);
+      }
+
+      a.data.forEach((row, idx) => {
+        const r = document.createElement('div'); r.className = 'barRow';
+        const label = document.createElement('div'); label.className = 'label'; label.title = row.name || `학생 ${idx+1}`; label.textContent = row.name || '(이름 없음)';
+        const track = document.createElement('div'); track.className = 'barTrack';
+        const fill = document.createElement('div'); fill.className = 'barFill';
+        const widthPct = max === 0 ? 0 : Math.min(100, (row.hours / max) * 100); fill.style.width = widthPct + '%';
+        const tag = document.createElement('div'); tag.className = 'barTag'; tag.textContent = `${(row.hours || 0).toFixed(1)}h`;
+        track.appendChild(fill); track.appendChild(tag); r.append(label, track); bars.appendChild(r);
+      });
+
+      $summary().textContent = `총 ${a.data.length}명 · 합계 ${sum.toFixed(1)}h · 최대 ${max.toFixed(1)}h`;
+    }
+
+    // -------------------- 출석부 --------------------
+    function renderAttendance() {
+      const a = active();
+      const table = $attTable();
+      if (!table) return;
+
+      // ensure cell map for all rows
+      a.data.forEach(r => { if (!a.attCells[r.id]) a.attCells[r.id] = {}; });
+
+      // thead
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      const thName = document.createElement('th');
+      thName.textContent = '이름';
+      Object.assign(thName.style, { position:'sticky', left:'0', zIndex:'2', background:'#0b1220', color:'var(--muted)', textAlign:'left', padding:'10px 12px', borderBottom:'1px solid var(--ring)' });
+      hr.appendChild(thName);
+      a.attColumns.forEach(col => {
+        const th = document.createElement('th'); th.textContent = col.label; Object.assign(th.style, { color:'#dbeafe', padding:'10px 12px', borderBottom:'1px solid var(--ring)', whiteSpace:'nowrap' }); hr.appendChild(th);
+      });
+      thead.appendChild(hr);
+
+      // tbody
+      const tbody = document.createElement('tbody');
+      a.data.forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        const nameCell = document.createElement('td'); nameCell.textContent = row.name || `(이름 없음 ${idx+1})`;
+        Object.assign(nameCell.style, { position:'sticky', left:'0', background:'#0b1220', padding:'8px 12px', borderBottom:'1px solid var(--ring)', fontSize:'13px' });
+        tr.appendChild(nameCell);
+
+        a.attColumns.forEach(col => {
+          const td = document.createElement('td');
+          Object.assign(td.style, { padding:'8px 12px', borderBottom:'1px solid var(--ring)', textAlign:'center', cursor:'pointer', userSelect:'none', borderRadius:'8px' });
+          const present = !!(a.attCells[row.id] && a.attCells[row.id][col.id]);
+          td.textContent = present ? '출석' : '';
+          td.style.background = present ? '#082f22' : 'transparent';
+          td.style.color = present ? '#bbf7d0' : 'var(--text)';
+          td.addEventListener('click', () => { if (!a.attCells[row.id]) a.attCells[row.id] = {}; a.attCells[row.id][col.id] = !present; renderAttendance(); });
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+
+      table.innerHTML = ''; table.appendChild(thead); table.appendChild(tbody);
+    }
+
+    // -------------------- 전체 렌더 트리거 --------------------
+    function renderAll() { renderClassTabs(); renderRows(); renderGraph(); renderAttendance(); }
+
+    // -------------------- 이벤트 바인딩 --------------------
+    // 학생 추가/삭제/초기화
+    document.getElementById('addBtn').addEventListener('click', () => { const a = active(); a.data.push({ id: cid(), name: '', hours: 0 }); renderAll(); });
+    document.getElementById('clearBtn').addEventListener('click', () => { if (!confirm('현재 반의 모든 학생을 지울까요?')) return; const a = active(); a.data = []; a.attCells = {}; renderAll(); });
+
+    // 출석부 열 관리
+    document.getElementById('addColBtn').addEventListener('click', () => { const a = active(); const label = (document.getElementById('colName').value || '').trim(); if (!label) return alert('열 제목을 입력하세요. 예: 10/23'); a.attColumns.push({ id: cid(), label }); document.getElementById('colName').value=''; renderAttendance(); });
+    document.getElementById('addTodayBtn').addEventListener('click', () => { const a = active(); const d = new Date(); const label = `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`; a.attColumns.push({ id: cid(), label }); renderAttendance(); });
+    document.getElementById('clearAttBtn').addEventListener('click', () => { if (!confirm('현재 반의 출석표를 초기화할까요? (열/체크 전부 삭제)')) return; const a = active(); a.attColumns = []; a.attCells = {}; renderAttendance(); });
+
+    // 반 추가/이름변경/삭제
+    document.getElementById('addClassBtn').addEventListener('click', () => {
+      const name = (document.getElementById('newClassName').value || '').trim() || `새 반 ${state.classes.length+1}`;
+      const cls = { id: cid(), name, data: [], attColumns: [], attCells: {} };
+      state.classes.push(cls); state.activeId = cls.id; document.getElementById('newClassName').value = ''; renderAll();
+    });
+    document.getElementById('renameClassBtn').addEventListener('click', () => {
+      const a = active(); if (!a) return; const name = (document.getElementById('renameInput').value || '').trim(); if (!name) return alert('새 이름을 입력하세요.'); a.name = name; document.getElementById('renameInput').value=''; renderClassTabs();
+    });
+    document.getElementById('deleteClassBtn').addEventListener('click', () => {
+      if (state.classes.length <= 1) return alert('최소 1개 반은 남아 있어야 합니다.');
+      const a = active(); if (!confirm(`'${a.name}' 반을 삭제할까요?`)) return;
+      const idx = state.classes.findIndex(c => c.id === state.activeId);
+      state.classes.splice(idx, 1);
+      state.activeId = state.classes[Math.max(0, idx-1)].id;
+      renderAll();
+    });
+
+    // 첫 렌더
+    renderAll();
+  </script>
+</body>
+</html>
