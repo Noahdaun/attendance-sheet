@@ -27,8 +27,10 @@
     /* class tabs */
     .classes { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
     .tabs { display:flex; gap:8px; flex-wrap:wrap; }
-    .tab { padding:8px 12px; border:1px solid var(--ring); border-radius:999px; cursor:pointer; background:#0b1220; color:#cbd5e1; }
+    .tab { padding:8px 12px; border:1px solid var(--ring); border-radius:999px; cursor:grab; background:#0b1220; color:#cbd5e1; user-select:none; }
+    .tab:active { cursor:grabbing; }
     .tab.active { background: linear-gradient(180deg, #1f2937, #0f172a); color:#fff; box-shadow: 0 6px 14px rgba(0,0,0,.35); }
+    .tab.drag-over { outline:2px dashed var(--accent); }
     .classControls { display:flex; gap:8px; flex-wrap:wrap; }
     button, input[type="text"], input[type="number"] { background:#0b1220; color:var(--text); border:1px solid var(--ring); border-radius:10px; padding: 10px 12px; font-size:14px; outline:none; }
     button { background: linear-gradient(180deg, #1f2937, #0f172a); cursor:pointer; transition: transform .06s ease, box-shadow .2s ease; }
@@ -78,7 +80,7 @@
   <div class="wrap">
     <div class="title">
       <h1>공부시간 비교 보드</h1>
-      <div class="note">반(클래스) 탭을 만들어 여러 반을 따로 관리할 수 있습니다.</div>
+      <div class="note">반(클래스) 탭을 만들어 여러 반을 따로 관리할 수 있습니다. (자동 저장 + 드래그 정렬 지원)</div>
     </div>
 
     <!-- 반 탭/관리 -->
@@ -153,25 +155,45 @@
       </div>
     </section>
 
-    <div class="footer">Tip: 각 반은 학생 목록·공부시간·출석표가 서로 독립적으로 관리됩니다.</div>
+    <div class="footer">Tip: 각 반은 학생 목록·공부시간·출석표가 서로 독립적으로 관리됩니다. (자동 저장됨)</div>
   </div>
 
   <script>
-    // -------------------- 다중 반 상태 --------------------
+    // -------------------- 저장/불러오기 --------------------
+    const LS_KEY = 'studyBoard_v1';
     function cid() { return Math.random().toString(36).slice(2, 9); }
 
-    const state = {
-      classes: [
-        {
-          id: cid(), name: 'A반',
-          data: [ { id: cid(), name: 'Alice', hours: 3 }, { id: cid(), name: 'Brian', hours: 2.5 }, { id: cid(), name: 'Chris', hours: 1 } ],
-          attColumns: [],
-          attCells: {}, // { [rowId]: { [colId]: true } }
-        }
-      ],
-      activeId: null,
-    };
-    state.activeId = state.classes[0].id;
+    function saveState() {
+      try {
+        const snapshot = JSON.stringify(state);
+        localStorage.setItem(LS_KEY, snapshot);
+      } catch (e) { /* ignore quota errors */ }
+    }
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.classes) || !parsed.activeId) return false;
+        state.classes = parsed.classes;
+        state.activeId = parsed.activeId;
+        return true;
+      } catch (e) { return false; }
+    }
+
+    // -------------------- 다중 반 상태 --------------------
+    const state = { classes: [], activeId: null };
+    // 초기 데이터 (로컬에 없으면 생성)
+    if (!loadState()) {
+      const initial = {
+        id: cid(), name: 'A반',
+        data: [ { id: cid(), name: 'Alice', hours: 3 }, { id: cid(), name: 'Brian', hours: 2.5 }, { id: cid(), name: 'Chris', hours: 1 } ],
+        attColumns: [], attCells: {}
+      };
+      state.classes.push(initial);
+      state.activeId = initial.id;
+      saveState();
+    }
 
     // helpers
     const $rows = () => document.getElementById('rows');
@@ -179,18 +201,44 @@
     const $summary = () => document.getElementById('summary');
     const $tickLabels = () => document.getElementById('tickLabels');
     const $attTable = () => document.getElementById('attTable');
-
     function active() { return state.classes.find(c => c.id === state.activeId); }
 
-    // -------------------- 반 탭 렌더링 --------------------
+    // -------------------- 반 탭 렌더링 (드래그 정렬) --------------------
     function renderClassTabs() {
       const host = document.getElementById('classTabs');
       host.innerHTML = '';
-      state.classes.forEach(cls => {
+      state.classes.forEach((cls, index) => {
         const b = document.createElement('button');
         b.className = 'tab' + (cls.id === state.activeId ? ' active' : '');
         b.textContent = cls.name;
-        b.addEventListener('click', () => { state.activeId = cls.id; renderAll(); });
+        b.setAttribute('draggable', 'true');
+        b.dataset.id = cls.id;
+        b.dataset.index = index;
+
+        // click to activate
+        b.addEventListener('click', (e) => {
+          // avoid activating on drop
+          if (e.detail === 0) return; 
+          state.activeId = cls.id; renderAll();
+        });
+
+        // drag events
+        b.addEventListener('dragstart', (ev) => {
+          ev.dataTransfer.setData('text/plain', String(index));
+        });
+        b.addEventListener('dragover', (ev) => { ev.preventDefault(); b.classList.add('drag-over'); });
+        b.addEventListener('dragleave', () => b.classList.remove('drag-over'));
+        b.addEventListener('drop', (ev) => {
+          ev.preventDefault(); b.classList.remove('drag-over');
+          const from = Number(ev.dataTransfer.getData('text/plain'));
+          const to = index;
+          if (!Number.isInteger(from) || from === to) return;
+          const moved = state.classes.splice(from, 1)[0];
+          state.classes.splice(to, 0, moved);
+          renderClassTabs();
+          saveState();
+        });
+
         host.appendChild(b);
       });
     }
@@ -211,7 +259,7 @@
         nameInput.placeholder = '학생 이름';
         nameInput.value = row.name;
         nameInput.addEventListener('input', (e) => {
-          row.name = e.target.value; renderGraph(); renderAttendance();
+          row.name = e.target.value; renderGraph(); renderAttendance(); saveState();
         });
 
         const hourInput = document.createElement('input');
@@ -223,7 +271,7 @@
         hourInput.value = row.hours ?? 0;
         hourInput.addEventListener('input', (e) => {
           const v = parseFloat(e.target.value);
-          row.hours = Number.isFinite(v) ? Math.max(0, v) : 0; renderGraph();
+          row.hours = Number.isFinite(v) ? Math.max(0, v) : 0; renderGraph(); saveState();
         });
 
         const del = document.createElement('button');
@@ -232,7 +280,6 @@
         del.innerHTML = '✕';
         del.addEventListener('click', () => {
           a.data = a.data.filter((x) => x.id !== row.id);
-          // 출석 셀도 같이 정리
           delete a.attCells[row.id];
           renderAll();
         });
@@ -309,7 +356,7 @@
           td.textContent = present ? '출석' : '';
           td.style.background = present ? '#082f22' : 'transparent';
           td.style.color = present ? '#bbf7d0' : 'var(--text)';
-          td.addEventListener('click', () => { if (!a.attCells[row.id]) a.attCells[row.id] = {}; a.attCells[row.id][col.id] = !present; renderAttendance(); });
+          td.addEventListener('click', () => { if (!a.attCells[row.id]) a.attCells[row.id] = {}; a.attCells[row.id][col.id] = !present; renderAttendance(); saveState(); });
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -319,7 +366,7 @@
     }
 
     // -------------------- 전체 렌더 트리거 --------------------
-    function renderAll() { renderClassTabs(); renderRows(); renderGraph(); renderAttendance(); }
+    function renderAll() { renderClassTabs(); renderRows(); renderGraph(); renderAttendance(); saveState(); }
 
     // -------------------- 이벤트 바인딩 --------------------
     // 학생 추가/삭제/초기화
@@ -327,9 +374,9 @@
     document.getElementById('clearBtn').addEventListener('click', () => { if (!confirm('현재 반의 모든 학생을 지울까요?')) return; const a = active(); a.data = []; a.attCells = {}; renderAll(); });
 
     // 출석부 열 관리
-    document.getElementById('addColBtn').addEventListener('click', () => { const a = active(); const label = (document.getElementById('colName').value || '').trim(); if (!label) return alert('열 제목을 입력하세요. 예: 10/23'); a.attColumns.push({ id: cid(), label }); document.getElementById('colName').value=''; renderAttendance(); });
-    document.getElementById('addTodayBtn').addEventListener('click', () => { const a = active(); const d = new Date(); const label = `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`; a.attColumns.push({ id: cid(), label }); renderAttendance(); });
-    document.getElementById('clearAttBtn').addEventListener('click', () => { if (!confirm('현재 반의 출석표를 초기화할까요? (열/체크 전부 삭제)')) return; const a = active(); a.attColumns = []; a.attCells = {}; renderAttendance(); });
+    document.getElementById('addColBtn').addEventListener('click', () => { const a = active(); const label = (document.getElementById('colName').value || '').trim(); if (!label) return alert('열 제목을 입력하세요. 예: 10/23'); a.attColumns.push({ id: cid(), label }); document.getElementById('colName').value=''; renderAttendance(); saveState(); });
+    document.getElementById('addTodayBtn').addEventListener('click', () => { const a = active(); const d = new Date(); const label = `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`; a.attColumns.push({ id: cid(), label }); renderAttendance(); saveState(); });
+    document.getElementById('clearAttBtn').addEventListener('click', () => { if (!confirm('현재 반의 출석표를 초기화할까요? (열/체크 전부 삭제)')) return; const a = active(); a.attColumns = []; a.attCells = {}; renderAttendance(); saveState(); });
 
     // 반 추가/이름변경/삭제
     document.getElementById('addClassBtn').addEventListener('click', () => {
@@ -338,7 +385,7 @@
       state.classes.push(cls); state.activeId = cls.id; document.getElementById('newClassName').value = ''; renderAll();
     });
     document.getElementById('renameClassBtn').addEventListener('click', () => {
-      const a = active(); if (!a) return; const name = (document.getElementById('renameInput').value || '').trim(); if (!name) return alert('새 이름을 입력하세요.'); a.name = name; document.getElementById('renameInput').value=''; renderClassTabs();
+      const a = active(); if (!a) return; const name = (document.getElementById('renameInput').value || '').trim(); if (!name) return alert('새 이름을 입력하세요.'); a.name = name; document.getElementById('renameInput').value=''; renderClassTabs(); saveState();
     });
     document.getElementById('deleteClassBtn').addEventListener('click', () => {
       if (state.classes.length <= 1) return alert('최소 1개 반은 남아 있어야 합니다.');
